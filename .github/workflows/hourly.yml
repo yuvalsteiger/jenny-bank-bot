@@ -23,6 +23,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Allow Chromium sandbox on Ubuntu 24.04 runners
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
       - name: Restore notification-state cache
         uses: actions/cache/restore@v4
         with:
