@@ -1,0 +1,28 @@
+{
+  "name": "bank-bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "next-debit": "tsx src/next-debit.ts",
+    "scrape:all": "npm start && npm run next-debit",
+    "wa:test": "tsx src/wa-test.ts",
+    "wa:summary": "tsx src/wa-summary.ts",
+    "postinstall": "patch-package"
+  },
+  "dependencies": {
+    "@kapso/whatsapp-cloud-api": "^0.2.1",
+    "dotenv": "^16.4.5",
+    "israeli-bank-scrapers": "^6.7.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "patch-package": "^8.0.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

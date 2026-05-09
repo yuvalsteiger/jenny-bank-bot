@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "automate-whatsapp": {
+      "source": "gokapso/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/automate-whatsapp/SKILL.md",
+      "computedHash": "c0eb168522c9621be44831368b5e515206c9ae0c66346a25339267b619c79b77"
+    }
+  }
+}
