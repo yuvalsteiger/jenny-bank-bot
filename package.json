@@ -11,6 +11,7 @@
     "next-debit": "tsx src/next-debit.ts",
     "scrape:all": "npm start && npm run next-debit",
     "wa:test": "tsx src/wa-test.ts",
+    "wa:test-template": "tsx src/wa-test-template.ts",
     "wa:summary": "tsx src/wa-summary.ts",
     "postinstall": "patch-package"
   },
