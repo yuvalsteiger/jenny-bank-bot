@@ -18,6 +18,10 @@ async function main(): Promise<void> {
     combineInstallments: false,
     showBrowser: false,
     verbose: false,
+    // Required on Ubuntu 24.04 GH Actions runners: AppArmor blocks unprivileged
+    // user namespaces, which Chromium's sandbox needs. Safe here — the runner
+    // is ephemeral and only ever navigates to the bank login flow.
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
   });
 
   console.log('Starting Hapoalim scrape...');

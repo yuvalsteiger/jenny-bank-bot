@@ -49,6 +49,8 @@ async function scrapeOne(account: CalAccount, startDate: Date): Promise<ScraperS
     verbose: false,
     timeout: 120_000,
     defaultTimeout: 120_000,
+    // Required on Ubuntu 24.04 GH Actions runners — see src/index.ts for context.
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
   });
   return scraper.scrape({ username: account.username, password: account.password });
 }
