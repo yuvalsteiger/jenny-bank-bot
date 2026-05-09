@@ -4,16 +4,6 @@ import path from 'node:path';
 import { CompanyTypes, createScraper } from 'israeli-bank-scrapers';
 import { daysAgo, requireEnv, safeTimestamp } from './util.js';
 
-function formatDateRange(transactions: Array<{ date?: string }> | undefined): string {
-  if (!transactions || transactions.length === 0) return 'no transactions';
-  const dates = transactions
-    .map((t) => t.date)
-    .filter((d): d is string => typeof d === 'string')
-    .sort();
-  if (dates.length === 0) return 'no dated transactions';
-  return `${dates[0]} → ${dates[dates.length - 1]}`;
-}
-
 async function main(): Promise<void> {
   const credentials = {
     userCode: requireEnv('HAPOALIM_USER_CODE'),
@@ -26,17 +16,15 @@ async function main(): Promise<void> {
     companyId: CompanyTypes.hapoalim,
     startDate,
     combineInstallments: false,
-    showBrowser: true,
-    verbose: true,
+    showBrowser: false,
+    verbose: false,
   });
 
-  console.log(`Starting Hapoalim scrape (startDate=${startDate.toISOString().slice(0, 10)})...`);
+  console.log('Starting Hapoalim scrape...');
   const result = await scraper.scrape(credentials);
 
   if (!result.success) {
-    console.error('Scrape failed.');
-    console.error(`  errorType:    ${result.errorType ?? '(none)'}`);
-    console.error(`  errorMessage: ${result.errorMessage ?? '(none)'}`);
+    console.error(`Scrape failed (errorType=${result.errorType ?? 'none'})`);
     process.exit(1);
   }
 
@@ -50,24 +38,11 @@ async function main(): Promise<void> {
   await writeFile(timestampedPath, json, 'utf8');
   await writeFile(latestPath, json, 'utf8');
 
-  // Summary only — never log credentials or full transaction bodies.
-  console.log('\nScrape successful.');
+  // Public-repo safe: counts only. No account numbers, balances, amounts, or
+  // descriptions in stdout — workflow logs are publicly readable.
   const accounts = result.accounts ?? [];
-  if (accounts.length === 0) {
-    console.log('  No accounts returned.');
-  } else {
-    for (const account of accounts) {
-      const balance =
-        typeof account.balance === 'number' ? account.balance : 'balance not provided';
-      const txnCount = account.txns?.length ?? 0;
-      console.log(`  Account ${account.accountNumber}:`);
-      console.log(`    balance:      ${balance}`);
-      console.log(`    transactions: ${txnCount}`);
-      console.log(`    date range:   ${formatDateRange(account.txns)}`);
-    }
-  }
-  console.log(`\nFull data saved to: ${timestampedPath}`);
-  console.log(`Latest pointer:     ${latestPath}`);
+  const totalTxns = accounts.reduce((sum, a) => sum + (a.txns?.length ?? 0), 0);
+  console.log(`Scrape successful. ${accounts.length} account(s), ${totalTxns} transaction(s).`);
 }
 
 main().catch((err) => {

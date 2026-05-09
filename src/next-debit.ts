@@ -4,15 +4,7 @@ import path from 'node:path';
 import { CompanyTypes, createScraper } from 'israeli-bank-scrapers';
 import type { ScraperScrapingResult } from 'israeli-bank-scrapers/lib/scrapers/interface.js';
 import type { Transaction } from 'israeli-bank-scrapers/lib/transactions.js';
-import { TransactionStatuses } from 'israeli-bank-scrapers/lib/transactions.js';
-import { daysAgo, israelDateKey, todayInIsrael } from './util.js';
-
-const ILS = (n: number): string =>
-  new Intl.NumberFormat('he-IL', { style: 'currency', currency: 'ILS' }).format(n);
-
-// chargedAmount: negative = debit, positive = refund. Sum signed values; flip
-// sign at print time so refunds correctly *reduce* the bucket total.
-const debitMagnitude = (t: Transaction): number => -t.chargedAmount;
+import { daysAgo } from './util.js';
 
 interface CalAccount {
   owner: string;
@@ -45,23 +37,20 @@ function loadCalAccounts(): CalAccount[] {
   return accounts;
 }
 
-async function scrapeOne(account: CalAccount, startDate: Date, outputDir: string): Promise<ScraperScrapingResult> {
+async function scrapeOne(account: CalAccount, startDate: Date): Promise<ScraperScrapingResult> {
+  // No storeFailureScreenShotPath — failure screenshots can capture bank UI
+  // (balances, recent transactions, names) and would land in publicly-readable
+  // GH Actions logs/artifacts. Debug locally with showBrowser=true if needed.
   const scraper = createScraper({
     companyId: CompanyTypes.visaCal,
     startDate,
     combineInstallments: false,
-    showBrowser: true,
-    verbose: true,
+    showBrowser: false,
+    verbose: false,
     timeout: 120_000,
     defaultTimeout: 120_000,
-    storeFailureScreenShotPath: path.join(outputDir, `cal-failure-${ownerSlug(account.owner)}.png`),
   });
-  console.log(`\n[${account.owner}] Starting Cal scrape (startDate=${startDate.toISOString().slice(0, 10)})...`);
   return scraper.scrape({ username: account.username, password: account.password });
-}
-
-function ownerSlug(owner: string): string {
-  return owner.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'owner';
 }
 
 async function main(): Promise<void> {
@@ -71,32 +60,31 @@ async function main(): Promise<void> {
   await mkdir(outputDir, { recursive: true });
 
   // Run scrapes sequentially so the user can handle 2FA one window at a time.
-  // A single owner's failure shouldn't block the others — collect successes and
-  // failures, report at the end.
+  // A single cardholder's failure shouldn't block the others.
   const scrapeResults: Array<{ account: CalAccount; result: ScraperScrapingResult }> = [];
-  const failures: Array<{ owner: string; errorType?: string; errorMessage?: string }> = [];
-  for (const account of accounts) {
+  let failureCount = 0;
+  for (let i = 0; i < accounts.length; i++) {
+    const account = accounts[i]!;
+    console.log(`[#${i + 1}/${accounts.length}] Starting Cal scrape...`);
     let result: ScraperScrapingResult;
     try {
-      result = await scrapeOne(account, startDate, outputDir);
+      result = await scrapeOne(account, startDate);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      console.error(`[${account.owner}] Cal scrape threw: ${message}`);
-      failures.push({ owner: account.owner, errorType: 'THROWN', errorMessage: message });
+      console.error(`[#${i + 1}] Cal scrape threw: ${message}`);
+      failureCount++;
       continue;
     }
     if (!result.success) {
-      console.error(`[${account.owner}] Cal scrape failed.`);
-      console.error(`  errorType:    ${result.errorType ?? '(none)'}`);
-      console.error(`  errorMessage: ${result.errorMessage ?? '(none)'}`);
-      failures.push({ owner: account.owner, errorType: result.errorType, errorMessage: result.errorMessage });
+      console.error(`[#${i + 1}] Cal scrape failed (errorType=${result.errorType ?? 'none'})`);
+      failureCount++;
       continue;
     }
     scrapeResults.push({ account, result });
   }
 
   if (scrapeResults.length === 0) {
-    console.error('\nAll Cal scrapes failed. Nothing to report.');
+    console.error('All Cal scrapes failed.');
     process.exit(1);
   }
 
@@ -118,76 +106,13 @@ async function main(): Promise<void> {
   const mergedJson = JSON.stringify(merged, null, 2);
   await writeFile(path.join(outputDir, 'cal-merged-latest.json'), mergedJson, 'utf8');
 
-  // Reporting
-  const today = todayInIsrael();
-  const futureConfirmed = allTxns.filter(
-    (t) => t.status === TransactionStatuses.Completed && israelDateKey(t.processedDate) >= today,
+  // Public-repo safe: counts only. No cardholder names, dates, amounts, or
+  // descriptions in stdout.
+  console.log(
+    `Cal scrape complete: ${scrapeResults.length}/${accounts.length} cardholder(s) succeeded, ${allTxns.length} transaction(s) merged.`,
   );
-  const pending = allTxns.filter((t) => t.status === TransactionStatuses.Pending);
-
-  console.log('');
-  console.log(`Cal scrape successful. Cardholders: ${accounts.map((a) => a.owner).join(', ')}`);
-  console.log(`Transactions seen: ${allTxns.length}`);
-
-  console.log('');
-  if (futureConfirmed.length === 0) {
-    console.log('No confirmed future-dated debits in the Cal scrape.');
-  } else {
-    const groups = new Map<string, OwnedTransaction[]>();
-    for (const t of futureConfirmed) {
-      const key = israelDateKey(t.processedDate);
-      const bucket = groups.get(key);
-      if (bucket) bucket.push(t);
-      else groups.set(key, [t]);
-    }
-    const sortedDates = [...groups.keys()].sort();
-    sortedDates.forEach((date, i) => {
-      const txns = groups.get(date) ?? [];
-      const total = txns.reduce((sum, t) => sum + debitMagnitude(t), 0);
-      const label = i === 0 ? 'Next debit' : 'Then';
-      console.log(`${label} on ${date}: ${ILS(total)} across ${txns.length} transactions`);
-      const byOwner = new Map<string, { sum: number; count: number }>();
-      for (const t of txns) {
-        const cur = byOwner.get(t.owner) ?? { sum: 0, count: 0 };
-        cur.sum += debitMagnitude(t);
-        cur.count += 1;
-        byOwner.set(t.owner, cur);
-      }
-      for (const owner of accounts.map((a) => a.owner)) {
-        const stat = byOwner.get(owner) ?? { sum: 0, count: 0 };
-        console.log(`    ${owner.padEnd(10)} ${ILS(stat.sum)} (${stat.count} tx)`);
-      }
-    });
-  }
-
-  if (pending.length > 0) {
-    const pendingTotal = pending.reduce((sum, t) => sum + debitMagnitude(t), 0);
-    console.log('');
-    console.log(`Pending charges not yet assigned to a debit date: ${ILS(pendingTotal)} across ${pending.length} transactions`);
-    console.log("  (these will be added to the next billing cycle's total)");
-    const byOwner = new Map<string, { sum: number; count: number }>();
-    for (const t of pending) {
-      const cur = byOwner.get(t.owner) ?? { sum: 0, count: 0 };
-      cur.sum += debitMagnitude(t);
-      cur.count += 1;
-      byOwner.set(t.owner, cur);
-    }
-    for (const owner of accounts.map((a) => a.owner)) {
-      const stat = byOwner.get(owner) ?? { sum: 0, count: 0 };
-      console.log(`    ${owner.padEnd(10)} ${ILS(stat.sum)} (${stat.count} tx)`);
-    }
-  }
-
-  console.log('');
-  console.log(`Merged data: output/cal-merged-latest.json`);
-
-  if (failures.length > 0) {
-    console.log('');
-    console.log(`Note: ${failures.length} of ${accounts.length} Cal scrape(s) failed — totals above EXCLUDE them:`);
-    for (const f of failures) {
-      console.log(`  ${f.owner}: ${f.errorType ?? '(no type)'} — ${f.errorMessage ?? '(no message)'}`);
-    }
-    console.log(`Failure screenshots (if any): output/cal-failure-<owner>.png`);
+  if (failureCount > 0) {
+    console.log(`(${failureCount} cardholder scrape(s) failed; their txns are excluded.)`);
   }
 }
 

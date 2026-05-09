@@ -24,13 +24,9 @@ export interface TemplateSpec {
   body: { type: 'text'; text: string }[];
 }
 
-// Mask all but the first 3 and last 2 digits — enough to disambiguate logs
-// without putting a full personal number in stdout. Mirrors the project's
-// "summary only — never log credentials or full transaction bodies" rule.
-function maskRecipient(num: string): string {
-  if (num.length <= 5) return '***';
-  return `${num.slice(0, 3)}***${num.slice(-2)}`;
-}
+// Public-repo safe: identify recipients only by 1-based index in logs. Phone
+// numbers, owner keys, and display names are all considered sensitive and must
+// never reach stdout.
 
 function parseRecipients(raw: string): Recipient[] {
   const entries = raw
@@ -76,14 +72,15 @@ export async function broadcast(body: string): Promise<BroadcastResult> {
   // Sequential — small recipient counts and we want predictable log ordering.
   // A single recipient's failure shouldn't block the others, mirroring the
   // per-cardholder fail-isolation pattern in next-debit.ts.
-  for (const r of recipients) {
+  for (let i = 0; i < recipients.length; i++) {
+    const r = recipients[i]!;
     try {
       await client.messages.sendText({ phoneNumberId, to: r.number, body });
-      console.log(`  [ok]   ${r.ownerKey} ${maskRecipient(r.number)}`);
+      console.log(`  [ok]   recipient #${i + 1}`);
       succeeded++;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      console.error(`  [fail] ${r.ownerKey} ${maskRecipient(r.number)}: ${message}`);
+      console.error(`  [fail] recipient #${i + 1}: ${message}`);
       failed++;
     }
   }
@@ -91,11 +88,13 @@ export async function broadcast(body: string): Promise<BroadcastResult> {
   return { total: recipients.length, succeeded, failed };
 }
 
-// `build(recipient)` returns a TemplateSpec, or `null` to skip that recipient
-// (e.g. no source data for them in this run). Skipped recipients are not
-// counted in succeeded/failed; total reflects how many were actually attempted.
+// `build(recipient, index)` returns a TemplateSpec, or `null` to skip that
+// recipient (e.g. no source data for them in this run). Skipped recipients are
+// not counted in succeeded/failed; total reflects how many were actually
+// attempted. The 0-based index is passed so callers can produce safe log lines
+// without referencing the recipient's owner key or phone number.
 export async function broadcastTemplate(
-  build: (recipient: Recipient) => TemplateSpec | null,
+  build: (recipient: Recipient, index: number) => TemplateSpec | null,
 ): Promise<BroadcastResult> {
   const phoneNumberId = requireEnv('KAPSO_PHONE_NUMBER_ID');
   const recipients = getRecipients();
@@ -105,8 +104,9 @@ export async function broadcastTemplate(
   let succeeded = 0;
   let failed = 0;
 
-  for (const r of recipients) {
-    const spec = build(r);
+  for (let i = 0; i < recipients.length; i++) {
+    const r = recipients[i]!;
+    const spec = build(r, i);
     if (!spec) continue;
     attempted++;
     try {
@@ -116,11 +116,11 @@ export async function broadcastTemplate(
         body: spec.body,
       });
       await client.messages.sendTemplate({ phoneNumberId, to: r.number, template });
-      console.log(`  [ok]   ${r.ownerKey} ${maskRecipient(r.number)}`);
+      console.log(`  [ok]   recipient #${i + 1}`);
       succeeded++;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      console.error(`  [fail] ${r.ownerKey} ${maskRecipient(r.number)}: ${message}`);
+      console.error(`  [fail] recipient #${i + 1}: ${message}`);
       failed++;
     }
   }

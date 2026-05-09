@@ -71,7 +71,9 @@ if (newKeys.length === 0) {
 }
 
 writeFingerprint(CANDIDATE_PATH, current);
-console.log(`${newKeys.length} new transactions:`);
-for (const k of newKeys.slice(0, 10)) console.log(`  + ${k}`);
-if (newKeys.length > 10) console.log(`  ... and ${newKeys.length - 10} more`);
+const newHapoalim = newKeys.filter((k) => k.startsWith("hapoalim:")).length;
+const newCal = newKeys.filter((k) => k.startsWith("cal:")).length;
+console.log(
+  `${newKeys.length} new transactions detected (hapoalim=${newHapoalim}, cal=${newCal}); will send WhatsApp`,
+);
 process.exit(EXIT_NEW);

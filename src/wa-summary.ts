@@ -100,25 +100,17 @@ async function main(): Promise<void> {
   const templateName = isPositive ? positiveTemplate : negativeTemplate;
   const magnitude = ILS(Math.abs(remaining));
 
-  // The template body lives in Kapso, not here — log the inputs we'll send so
-  // the run is debuggable from stdout.
+  // Public-repo safe: log only which template variant we picked, never the
+  // computed monetary values that drove the choice.
   console.log(`Template: ${isPositive ? 'positive' : 'negative'} (${templateName})`);
-  console.log(`Balance: ${ILS(balance)}`);
-  console.log(
-    `Upcoming Cal: ${ILS(upcomingCal)} (next debit ${nextDebitDate ?? 'n/a'}: ${ILS(nextDebitTotal)} + pending: ${ILS(pendingTotal)})`,
-  );
-  console.log(`Remaining: ${ILS(remaining)}`);
-  console.log('');
 
-  const result = await broadcastTemplate((recipient: Recipient): TemplateSpec | null => {
+  const result = await broadcastTemplate((recipient: Recipient, index: number): TemplateSpec | null => {
     const ownerTxns = allTxns
       .filter((t) => t.owner === recipient.ownerKey)
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     const lastTxn = ownerTxns[0];
     if (!lastTxn) {
-      console.warn(
-        `  [skip] ${recipient.ownerKey}: no Cal transactions in cal-merged-latest.json (scrape may have failed)`,
-      );
+      console.warn(`  [skip] recipient #${index + 1}: no Cal transactions for this cardholder`);
       return null;
     }
     const lastAmount = ILS(Math.abs(lastTxn.chargedAmount));
