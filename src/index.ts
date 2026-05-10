@@ -18,6 +18,10 @@ async function main(): Promise<void> {
     combineInstallments: false,
     showBrowser: false,
     verbose: false,
+    // Library default (~30s) is too tight for cold-start Chromium on shared CI
+    // runners reaching an Israeli bank from a US Azure datacenter.
+    timeout: 120_000,
+    defaultTimeout: 120_000,
     // Required on Ubuntu 24.04 GH Actions runners: AppArmor blocks unprivileged
     // user namespaces, which Chromium's sandbox needs. Safe here — the runner
     // is ephemeral and only ever navigates to the bank login flow.
