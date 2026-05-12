@@ -16,7 +16,7 @@ async function main(): Promise<void> {
     companyId: CompanyTypes.hapoalim,
     startDate,
     combineInstallments: false,
-    showBrowser: false,
+    showBrowser: process.env.SHOW_BROWSER !== 'false',
     verbose: false,
     // Library default (~30s) is too tight for cold-start Chromium on shared CI
     // runners reaching an Israeli bank from a US Azure datacenter.
@@ -46,11 +46,21 @@ async function main(): Promise<void> {
   await writeFile(timestampedPath, json, 'utf8');
   await writeFile(latestPath, json, 'utf8');
 
-  // Public-repo safe: counts only. No account numbers, balances, amounts, or
-  // descriptions in stdout — workflow logs are publicly readable.
+  // Local debug logs — balances/amounts OK, but never log raw account numbers.
   const accounts = result.accounts ?? [];
   const totalTxns = accounts.reduce((sum, a) => sum + (a.txns?.length ?? 0), 0);
+  const totalBalance = accounts.reduce(
+    (sum, a) => sum + (typeof a.balance === 'number' ? a.balance : 0),
+    0,
+  );
+  const ils = (n: number): string =>
+    new Intl.NumberFormat('he-IL', { style: 'currency', currency: 'ILS' }).format(n);
   console.log(`Scrape successful. ${accounts.length} account(s), ${totalTxns} transaction(s).`);
+  console.log(`Total balance: ${ils(totalBalance)}`);
+  accounts.forEach((a, i) => {
+    const bal = typeof a.balance === 'number' ? ils(a.balance) : 'n/a';
+    console.log(`  account #${i + 1}: balance=${bal}, txns=${a.txns?.length ?? 0}`);
+  });
 }
 
 main().catch((err) => {

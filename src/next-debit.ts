@@ -45,7 +45,7 @@ async function scrapeOne(account: CalAccount, startDate: Date): Promise<ScraperS
     companyId: CompanyTypes.visaCal,
     startDate,
     combineInstallments: false,
-    showBrowser: false,
+    showBrowser: process.env.SHOW_BROWSER !== 'false',
     verbose: false,
     timeout: 120_000,
     defaultTimeout: 120_000,
@@ -61,13 +61,16 @@ async function main(): Promise<void> {
   const outputDir = path.resolve('output');
   await mkdir(outputDir, { recursive: true });
 
+  const ils = (n: number): string =>
+    new Intl.NumberFormat('he-IL', { style: 'currency', currency: 'ILS' }).format(n);
+
   // Run scrapes sequentially so the user can handle 2FA one window at a time.
   // A single cardholder's failure shouldn't block the others.
   const scrapeResults: Array<{ account: CalAccount; result: ScraperScrapingResult }> = [];
   let failureCount = 0;
   for (let i = 0; i < accounts.length; i++) {
     const account = accounts[i]!;
-    console.log(`[#${i + 1}/${accounts.length}] Starting Cal scrape...`);
+    console.log(`[#${i + 1}/${accounts.length}] Starting Cal scrape for ${account.owner}...`);
     let result: ScraperScrapingResult;
     try {
       result = await scrapeOne(account, startDate);
@@ -82,6 +85,11 @@ async function main(): Promise<void> {
       failureCount++;
       continue;
     }
+    const ownerTxns = (result.accounts ?? []).flatMap((acc) => acc.txns ?? []);
+    const ownerTotal = ownerTxns.reduce((sum, t) => sum + -t.chargedAmount, 0);
+    console.log(
+      `[#${i + 1}] ${account.owner}: ${ownerTxns.length} txns, total charges ${ils(ownerTotal)}`,
+    );
     scrapeResults.push({ account, result });
   }
 
@@ -108,11 +116,16 @@ async function main(): Promise<void> {
   const mergedJson = JSON.stringify(merged, null, 2);
   await writeFile(path.join(outputDir, 'cal-merged-latest.json'), mergedJson, 'utf8');
 
-  // Public-repo safe: counts only. No cardholder names, dates, amounts, or
-  // descriptions in stdout.
+  // Local debug logs — amounts/owner names OK, but never log card account numbers.
+  const totalAll = allTxns.reduce((sum, t) => sum + -t.chargedAmount, 0);
   console.log(
-    `Cal scrape complete: ${scrapeResults.length}/${accounts.length} cardholder(s) succeeded, ${allTxns.length} transaction(s) merged.`,
+    `Cal scrape complete: ${scrapeResults.length}/${accounts.length} cardholder(s) succeeded, ${allTxns.length} transaction(s) merged, total charges ${ils(totalAll)}.`,
   );
+  for (const owner of accounts.map((a) => a.owner)) {
+    const ownerTxns = allTxns.filter((t) => t.owner === owner);
+    const ownerTotal = ownerTxns.reduce((sum, t) => sum + -t.chargedAmount, 0);
+    console.log(`  ${owner}: ${ownerTxns.length} txns, total ${ils(ownerTotal)}`);
+  }
   if (failureCount > 0) {
     console.log(`(${failureCount} cardholder scrape(s) failed; their txns are excluded.)`);
   }

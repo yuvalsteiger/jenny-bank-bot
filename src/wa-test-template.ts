@@ -2,9 +2,9 @@ import 'dotenv/config';
 import { requireEnv } from './util.js';
 import { broadcastTemplate, type Recipient, type TemplateSpec } from './whatsapp.js';
 
-const DUMMY_LAST_AMOUNT = '₪50.00';
+const DUMMY_LAST_AMOUNT = '50.00';
 const DUMMY_LAST_PLACE = 'סופר־פארם';
-const DUMMY_REMAINING = '₪500.00';
+const DUMMY_REMAINING = '500.00';
 
 function parseVariant(arg: string | undefined): 'positive' | 'negative' {
   if (arg === undefined || arg === 'positive') return 'positive';
