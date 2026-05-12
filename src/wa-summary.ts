@@ -9,6 +9,15 @@ import { broadcastTemplate, getRecipients, type Recipient, type TemplateSpec } f
 const ILS = (n: number): string =>
   new Intl.NumberFormat('he-IL', { style: 'currency', currency: 'ILS' }).format(n);
 
+// Template body params: `₪` is hardcoded in the Kapso template (e.g. `₪{{2}}`),
+// so the runtime value must be a bare number string. Using `ILS()` here would
+// double up the shekel sign.
+const ILS_NUMBER = (n: number): string =>
+  new Intl.NumberFormat('he-IL', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(n);
+
 interface OwnedTransaction extends Transaction {
   owner: string;
   cardAccountNumber: string;
@@ -96,7 +105,7 @@ async function main(): Promise<void> {
 
   const isPositive = remaining >= 0;
   const templateName = isPositive ? positiveTemplate : negativeTemplate;
-  const magnitude = ILS(Math.abs(remaining));
+  const magnitude = ILS_NUMBER(Math.abs(remaining));
 
   // Shared pending list: every recipient sees the same combined view, labeled
   // by cardholder displayName so it's clear whose charge is whose.
@@ -137,7 +146,7 @@ async function main(): Promise<void> {
     console.error('No past completed Cal transactions across all cardholders; cannot send summary.');
     process.exit(1);
   }
-  const sharedLastAmount = ILS(Math.abs(sharedLastTxn.chargedAmount));
+  const sharedLastAmount = ILS_NUMBER(Math.abs(sharedLastTxn.chargedAmount));
   const sharedLastOwner = ownerToDisplay.get(sharedLastTxn.owner) ?? sharedLastTxn.owner;
   const sharedLastPlace = `${(sharedLastTxn.description ?? '').trim() || '—'} (${sharedLastOwner})`;
 
