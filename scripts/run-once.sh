@@ -17,5 +17,5 @@ retry() {
 }
 
 retry "Hapoalim scrape" npm start
-retry "Cal scrape"      npm run next-debit
+npm run next-debit
 npm run wa:summary

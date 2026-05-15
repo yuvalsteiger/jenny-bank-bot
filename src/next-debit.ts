@@ -55,6 +55,40 @@ async function scrapeOne(account: CalAccount, startDate: Date): Promise<ScraperS
   return scraper.scrape({ username: account.username, password: account.password });
 }
 
+const RETRY_ATTEMPTS = 3;
+const RETRY_SLEEP_MS = 60_000;
+
+async function scrapeWithRetry(
+  account: CalAccount,
+  startDate: Date,
+): Promise<ScraperScrapingResult> {
+  let lastReason = '';
+  for (let attempt = 1; attempt <= RETRY_ATTEMPTS; attempt++) {
+    try {
+      const result = await scrapeOne(account, startDate);
+      if (result.success) {
+        if (attempt > 1) {
+          console.log(`Cal scrape for ${account.owner} succeeded on attempt ${attempt}/${RETRY_ATTEMPTS}.`);
+        }
+        return result;
+      }
+      lastReason = `errorType=${result.errorType ?? 'none'}`;
+    } catch (e) {
+      lastReason = `threw: ${e instanceof Error ? e.message : String(e)}`;
+    }
+    console.error(
+      `Cal scrape for ${account.owner} attempt ${attempt}/${RETRY_ATTEMPTS} failed (${lastReason}).`,
+    );
+    if (attempt < RETRY_ATTEMPTS) {
+      console.error(`Retrying in ${RETRY_SLEEP_MS / 1000}s...`);
+      await new Promise((r) => setTimeout(r, RETRY_SLEEP_MS));
+    }
+  }
+  throw new Error(
+    `Cal scrape for ${account.owner} failed after ${RETRY_ATTEMPTS} attempts (last: ${lastReason}).`,
+  );
+}
+
 async function main(): Promise<void> {
   const accounts = loadCalAccounts();
   const startDate = daysAgo(30);
@@ -65,37 +99,17 @@ async function main(): Promise<void> {
     new Intl.NumberFormat('he-IL', { style: 'currency', currency: 'ILS' }).format(n);
 
   // Run scrapes sequentially so the user can handle 2FA one window at a time.
-  // A single cardholder's failure shouldn't block the others.
   const scrapeResults: Array<{ account: CalAccount; result: ScraperScrapingResult }> = [];
-  let failureCount = 0;
   for (let i = 0; i < accounts.length; i++) {
     const account = accounts[i]!;
     console.log(`[#${i + 1}/${accounts.length}] Starting Cal scrape for ${account.owner}...`);
-    let result: ScraperScrapingResult;
-    try {
-      result = await scrapeOne(account, startDate);
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      console.error(`[#${i + 1}] Cal scrape threw: ${message}`);
-      failureCount++;
-      continue;
-    }
-    if (!result.success) {
-      console.error(`[#${i + 1}] Cal scrape failed (errorType=${result.errorType ?? 'none'})`);
-      failureCount++;
-      continue;
-    }
+    const result = await scrapeWithRetry(account, startDate);
     const ownerTxns = (result.accounts ?? []).flatMap((acc) => acc.txns ?? []);
     const ownerTotal = ownerTxns.reduce((sum, t) => sum + -t.chargedAmount, 0);
     console.log(
       `[#${i + 1}] ${account.owner}: ${ownerTxns.length} txns, total charges ${ils(ownerTotal)}`,
     );
     scrapeResults.push({ account, result });
-  }
-
-  if (scrapeResults.length === 0) {
-    console.error('All Cal scrapes failed.');
-    process.exit(1);
   }
 
   // Tag every transaction with its owner + originating card account number.
@@ -125,9 +139,6 @@ async function main(): Promise<void> {
     const ownerTxns = allTxns.filter((t) => t.owner === owner);
     const ownerTotal = ownerTxns.reduce((sum, t) => sum + -t.chargedAmount, 0);
     console.log(`  ${owner}: ${ownerTxns.length} txns, total ${ils(ownerTotal)}`);
-  }
-  if (failureCount > 0) {
-    console.log(`(${failureCount} cardholder scrape(s) failed; their txns are excluded.)`);
   }
 }
 
