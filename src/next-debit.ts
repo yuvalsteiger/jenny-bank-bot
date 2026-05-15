@@ -142,7 +142,10 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  console.error('Unexpected error:', err instanceof Error ? err.message : err);
-  process.exit(1);
-});
+main().then(
+  () => process.exit(0),
+  (err) => {
+    console.error('Unexpected error:', err instanceof Error ? err.message : err);
+    process.exit(1);
+  },
+);
